@@ -105,7 +105,7 @@ func (d Dashboard) toggle() Toggle {
 }
 
 func (d Dashboard) footer() string {
-	return helpStyle.Render("space toggle · r refresh · q quit")
+	return helpStyle.Render(truncate("space toggle · e extras · r refresh · q quit", d.contentWidth()))
 }
 
 func (d Dashboard) contentWidth() int {

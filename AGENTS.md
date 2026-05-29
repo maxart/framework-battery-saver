@@ -21,12 +21,15 @@ internal/power/          Metric reading + script control (no UI, no root).
   scraper.go               Reads sysfs/procfs into Snapshot; ring-buffer history.
   control.go               Locates battery-saver.sh, detects saver state, reads
                            the power profile over D-Bus (busctl).
+  devices.go               Reads backlight % and rfkill (Wi-Fi/Bluetooth) state.
   ring.go                  Fixed-size ring buffer for sparkline history.
 internal/ui/             Bubble Tea program and rendering.
-  app.go                   Root tea.Model: tick loop, key/mouse handling, the
-                           sudo toggle via tea.ExecProcess.
+  app.go                   Root tea.Model: tick loop, key/mouse handling, view
+                           mode, the sudo toggles via tea.ExecProcess.
   dashboard.go             Pure view over a Snapshot: header, metric cards,
                            toggle, footer; responsive width math.
+  extras.go                Secondary panel (key `e`): Wi-Fi/Bluetooth toggles
+                           and brightness control.
   metric_card.go           Bordered title/value/sub panel.
   toggle.go                The large on/off button (with hit-test height).
   styles.go                Palette, sparkline, and meter helpers.
@@ -55,6 +58,16 @@ The file records exactly which `/proc/acpi/wakeup` devices `on` disabled, so
 tracked). When run via `sudo` the script resolves the invoking user
 (`SUDO_USER`) and `chown`s the state dir back so the unprivileged TUI can read
 and remove it.
+
+### Radios and brightness
+
+Wi-Fi and Bluetooth state is read root-free from `/sys/class/rfkill/*` (a radio
+is "off" when soft- or hard-blocked; hard blocks can't be cleared in software).
+Toggling them needs root, so it goes through `battery-saver.sh wifi|bluetooth
+on|off` (rfkill) over the same suspend-and-`sudo` path as the saver toggle.
+Brightness is read from `/sys/class/backlight/*` but *changed* via
+`brightnessctl`, which works unprivileged via logind — so brightness keys run
+in-process without suspending the TUI or prompting for a password.
 
 ### amd_pstate quirks (the HX 370)
 

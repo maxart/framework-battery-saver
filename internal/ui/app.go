@@ -12,7 +12,18 @@ import (
 	"framework-battery-saver/internal/power"
 )
 
-const scrapeInterval = time.Second
+const (
+	scrapeInterval = time.Second
+	brightnessStep = 10 // percent per key press
+	brightnessMin  = 5  // never let the screen go fully dark
+)
+
+type viewMode int
+
+const (
+	modeDashboard viewMode = iota
+	modeExtras
+)
 
 type (
 	tickMsg       struct{}
@@ -21,10 +32,11 @@ type (
 )
 
 // App is the root Bubble Tea model. It drives the scrape ticker and the
-// privileged toggle, delegating rendering to Dashboard.
+// privileged toggles, delegating rendering to Dashboard or Extras.
 type App struct {
 	scraper *power.Scraper
 	snap    power.Snapshot
+	mode    viewMode
 	width   int
 	height  int
 	busy    bool
@@ -45,17 +57,11 @@ func (m *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q", "esc":
-			return m, tea.Quit
-		case " ", "enter":
-			return m, m.startToggle()
-		case "r":
-			return m, m.scrape()
-		}
+		return m.handleKey(msg)
 
 	case tea.MouseMsg:
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+		if m.mode == modeDashboard &&
+			msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			if m.clickedToggle(msg.Y) {
 				return m, m.startToggle()
 			}
@@ -80,7 +86,12 @@ func (m *App) View() string {
 	if m.width == 0 {
 		return "Loading…"
 	}
-	body := m.dashboard().View()
+	var body string
+	if m.mode == modeExtras {
+		body = m.extras().View()
+	} else {
+		body = m.dashboard().View()
+	}
 	if m.err != nil {
 		body += "\n" + lipgloss.NewStyle().Foreground(colorError).Render("error: "+m.err.Error())
 	}
@@ -96,8 +107,49 @@ func Run() error {
 
 // Private
 
+func (m *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if key == "ctrl+c" {
+		return m, tea.Quit
+	}
+
+	if m.mode == modeExtras {
+		switch key {
+		case "esc", "e":
+			m.mode = modeDashboard
+		case "q":
+			return m, tea.Quit
+		case "w":
+			return m, m.startRadioToggle("wifi")
+		case "b":
+			return m, m.startRadioToggle("bluetooth")
+		case "left", "h", "-", "_":
+			return m, m.setBrightness(-brightnessStep)
+		case "right", "l", "+", "=":
+			return m, m.setBrightness(brightnessStep)
+		}
+		return m, nil
+	}
+
+	switch key {
+	case "q", "esc":
+		return m, tea.Quit
+	case " ", "enter":
+		return m, m.startToggle()
+	case "r":
+		return m, m.scrape()
+	case "e":
+		m.mode = modeExtras
+	}
+	return m, nil
+}
+
 func (m *App) dashboard() Dashboard {
 	return Dashboard{snap: m.snap, busy: m.busy, width: m.width - 4} // padding(1,2)
+}
+
+func (m *App) extras() Extras {
+	return Extras{snap: m.snap, busy: m.busy, width: m.width - 4}
 }
 
 func (m *App) scrape() tea.Cmd {
@@ -129,6 +181,67 @@ func (m *App) startToggle() tea.Cmd {
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return toggleDoneMsg{err: err}
 	})
+}
+
+// startRadioToggle flips Wi-Fi or Bluetooth via the privileged script (rfkill
+// needs root), so it goes through the same suspend-and-sudo path as the saver
+// toggle. kind is "wifi" or "bluetooth".
+func (m *App) startRadioToggle(kind string) tea.Cmd {
+	if m.busy {
+		return nil
+	}
+	st := m.snap.Wifi
+	if kind == "bluetooth" {
+		st = m.snap.Bluetooth
+	}
+	switch {
+	case !st.Present:
+		m.err = fmt.Errorf("%s: no device found", kind)
+		return nil
+	case st.HardBlock:
+		m.err = fmt.Errorf("%s is hardware-blocked; software can't enable it", kind)
+		return nil
+	}
+	script, err := power.ScriptPath()
+	if err != nil {
+		m.err = fmt.Errorf("cannot find battery-saver.sh: %w", err)
+		return nil
+	}
+	arg := "off"
+	if st.Off {
+		arg = "on"
+	}
+	m.busy = true
+	m.err = nil
+
+	cmd := exec.Command("sudo", script, kind, arg)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return toggleDoneMsg{err: err}
+	})
+}
+
+// setBrightness nudges the backlight by delta percent via brightnessctl (no
+// root needed), clamps to [brightnessMin, 100], then re-scrapes so the bar
+// reflects the change without waiting for the next tick.
+func (m *App) setBrightness(delta int) tea.Cmd {
+	if !m.snap.BrightnessPresent {
+		return nil
+	}
+	target := m.snap.BrightnessPct + delta
+	if target < brightnessMin {
+		target = brightnessMin
+	}
+	if target > 100 {
+		target = 100
+	}
+	arg := fmt.Sprintf("%d%%", target)
+	return func() tea.Msg {
+		_ = exec.Command("brightnessctl", "set", arg).Run()
+		ctx, cancel := context.WithTimeout(context.Background(), scrapeInterval)
+		defer cancel()
+		m.scraper.Scrape(ctx)
+		return snapshotMsg{m.scraper.Snapshot()}
+	}
 }
 
 // clickedToggle reports whether row y (1-indexed terminal row) falls within the

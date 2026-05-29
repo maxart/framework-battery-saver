@@ -50,12 +50,29 @@ Run as your normal user — all metrics are read root-free. Toggling shells out 
 `sudo ./battery-saver.sh on|off`, so the TUI briefly drops to a sudo prompt and
 then resumes.
 
-| Key             | Action               |
-|-----------------|----------------------|
-| `space`/`enter` | toggle power saver   |
-| left click      | toggle (the button)  |
-| `r`             | refresh now          |
-| `q`/`esc`/`^C`  | quit                 |
+| Key             | Action                          |
+|-----------------|---------------------------------|
+| `space`/`enter` | toggle power saver              |
+| left click      | toggle (the button)             |
+| `e`             | open the **Extras** panel       |
+| `r`             | refresh now                     |
+| `q`/`esc`/`^C`  | quit                            |
+
+### Extras panel (`e`)
+
+A second screen with the secondary radios and the screen backlight:
+
+| Key       | Action                                        |
+|-----------|-----------------------------------------------|
+| `w`       | toggle Wi-Fi (rfkill, via sudo)               |
+| `b`       | toggle Bluetooth (rfkill, via sudo)           |
+| `←` / `→` | brightness down / up (10% steps, via `brightnessctl`) |
+| `e`/`esc` | back to the dashboard                         |
+
+Brightness changes happen in-process (no root, no `brightnessctl` prompt);
+the radio toggles need root, so they take the same suspend-and-`sudo` path as
+the main toggle. Hardware-blocked radios show `OFF (hw)` and can't be enabled in
+software.
 
 ### What it reads
 
@@ -67,6 +84,8 @@ then resumes.
 | Battery + ETA | `/sys/class/power_supply/BAT*` (energy/power or charge/current)     |
 | Power profile | power-profiles-daemon `ActiveProfile` over D-Bus (`busctl`)         |
 | Saver state   | presence of `~/.local/state/battery-saver/disabled-wakeups`         |
+| Wi-Fi / BT    | `/sys/class/rfkill/*` soft/hard block state                        |
+| Brightness    | `/sys/class/backlight/*` (`brightness` / `max_brightness`)         |
 
 > RAPL `energy_uj` is root-only on most kernels, so on AC the power figure may
 > show `n/a`; on battery it always comes from the battery gauge.
@@ -77,9 +96,11 @@ directory up (`bin/fbs` → repo root), then the working directory.
 ## CLI (`battery-saver.sh`)
 
 ```bash
-./battery-saver.sh on       # cap 2.0GHz, powersave governor, power-saver profile, disable wakeups
-./battery-saver.sh off      # restore: uncap to hardware max, balanced profile, re-enable wakeups
-./battery-saver.sh status   # show current CPU/profile/wakeup state
+./battery-saver.sh on              # cap 2.0GHz, powersave governor, power-saver profile, disable wakeups
+./battery-saver.sh off             # restore: uncap to hardware max, balanced profile, re-enable wakeups
+./battery-saver.sh status          # show CPU/profile/wakeups/radios/brightness
+./battery-saver.sh wifi off        # disable Wi-Fi (rfkill); `on` to re-enable
+./battery-saver.sh bluetooth off   # disable Bluetooth (rfkill); `on` to re-enable
 ```
 
 Needs `cpupower` and `power-profiles-daemon`:

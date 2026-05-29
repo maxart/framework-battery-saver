@@ -42,6 +42,11 @@ type Snapshot struct {
 	Profile string // power-profiles-daemon profile, or "unknown"
 	SaverOn bool
 
+	BrightnessPct     int
+	BrightnessPresent bool
+	Wifi              RadioState
+	Bluetooth         RadioState
+
 	PowerHistory []float64
 	FreqHistory  []float64
 }
@@ -85,6 +90,8 @@ func (s *Scraper) Scrape(ctx context.Context) {
 	// We don't infer from profile or frequency cap because amd_pstate reports a
 	// dynamic cpuinfo_max_freq, making cap detection unreliable.
 	snap.SaverOn = SaverActive()
+	snap.BrightnessPct, snap.BrightnessPresent = readBacklight()
+	snap.Wifi, snap.Bluetooth = readRadios()
 
 	s.mu.Lock()
 	s.powerHist.push(snap.PowerW)

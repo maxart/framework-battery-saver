@@ -165,6 +165,9 @@ cmd_status() {
     log "Max freq (cap)  : $((maxf / 1000)) MHz"
     log "Current freq    : $((curf / 1000)) MHz (cpu0)"
     log "Power profile   : $prof"
+    log "Wi-Fi           : $(radio_state wlan)"
+    log "Bluetooth       : $(radio_state bluetooth)"
+    log "Brightness      : $(brightness_str)"
 
     local enabled
     # grep -c already prints 0 when there are no matches (and exits 1); the
@@ -179,20 +182,70 @@ cmd_status() {
     fi
 }
 
+# Read a radio's soft-block state from sysfs (root-free). $1 is the rfkill
+# "type" as it appears in sysfs: "wlan" for Wi-Fi, "bluetooth" for Bluetooth.
+radio_state() {
+    local want="$1" r typ soft hard
+    for r in /sys/class/rfkill/rfkill*; do
+        [[ -e "$r/type" ]] || continue
+        typ=$(cat "$r/type" 2>/dev/null)
+        [[ "$typ" == "$want" ]] || continue
+        soft=$(cat "$r/soft" 2>/dev/null)
+        hard=$(cat "$r/hard" 2>/dev/null)
+        [[ "$hard" == "1" ]] && { echo "off (hw block)"; return; }
+        [[ "$soft" == "0" ]] && echo "on" || echo "off"
+        return
+    done
+    echo "n/a"
+}
+
+# Current backlight level as a percentage, or "n/a" if no backlight (root-free).
+brightness_str() {
+    local d cur max
+    for d in /sys/class/backlight/*; do
+        [[ -e "$d/brightness" ]] || continue
+        cur=$(cat "$d/brightness" 2>/dev/null) || continue
+        max=$(cat "$d/max_brightness" 2>/dev/null) || continue
+        [[ "$max" -gt 0 ]] 2>/dev/null || continue
+        echo "$(( (cur * 100 + max / 2) / max ))%"
+        return
+    done
+    echo "n/a"
+}
+
+# Enable/disable a radio via rfkill (needs root). $1 is the rfkill identifier
+# ("wifi" or "bluetooth"); "on" unblocks, "off" soft-blocks.
+cmd_radio() {
+    local kind="$1" action="${2:-}"
+    command -v rfkill >/dev/null 2>&1 || { warn "rfkill not found (install util-linux)"; exit 1; }
+    case "$action" in
+        on)  log "Enabling $kind";  sudo rfkill unblock "$kind" ;;
+        off) log "Disabling $kind"; sudo rfkill block "$kind" ;;
+        *)   warn "usage: $(basename "$0") $kind {on|off}"; exit 2 ;;
+    esac
+}
+
 main() {
     require_tools
     case "${1:-}" in
-        on)     cmd_on ;;
-        off)    cmd_off ;;
-        status) cmd_status ;;
+        on)        cmd_on ;;
+        off)       cmd_off ;;
+        status)    cmd_status ;;
+        wifi)      cmd_radio wifi "${2:-}" ;;
+        bluetooth) cmd_radio bluetooth "${2:-}" ;;
         *)
             cat >&2 <<EOF
-Usage: $(basename "$0") {on|off|status}
+Usage: $(basename "$0") {on|off|status|wifi|bluetooth}
 
-  on      Cap CPU at $FREQ_CAP, powersave governor, power-saver profile,
-          and disable ACPI wakeup sources.
-  off     Restore balanced defaults and re-enable saved wakeup sources.
-  status  Show current CPU governor, frequency cap, power profile, wakeups.
+  on              Cap CPU at $FREQ_CAP, powersave governor, power-saver profile,
+                  and disable ACPI wakeup sources.
+  off             Restore balanced defaults and re-enable saved wakeup sources.
+  status          Show CPU, profile, wakeups, radios, and brightness.
+  wifi {on|off}   Enable or disable Wi-Fi (rfkill).
+  bluetooth {on|off}
+                  Enable or disable Bluetooth (rfkill).
+
+Brightness is adjusted from the TUI via brightnessctl (no root needed).
 EOF
             exit 2
             ;;
