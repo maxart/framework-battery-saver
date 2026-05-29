@@ -8,6 +8,17 @@ Arch / Omarchy. Two pieces:
 - **`fbs`** — a terminal dashboard showing live power draw, CPU frequency,
   battery (with time estimate), and power profile, plus a big on/off toggle.
 
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/maxart/framework-battery-saver/main/install.sh | sh
+```
+
+This downloads the right binary for your platform, installs `fbs` and its
+`battery-saver.sh` helper to `~/.local/bin`, and launches the dashboard.
+Override the location with `FBS_INSTALL_DIR`, or skip launch with
+`FBS_NO_LAUNCH=1`.
+
 ## TUI (`fbs`)
 
 ```
