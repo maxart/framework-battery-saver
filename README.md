@@ -1,4 +1,4 @@
-# framework-battery-saver
+# FBS: Framework Battery Saver
 
 Power management for the Framework Laptop 13 (AMD Ryzen AI 9 HX 370) on
 Arch / Omarchy. Two pieces:
