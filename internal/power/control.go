@@ -10,6 +10,10 @@ import (
 
 const scriptName = "battery-saver.sh"
 
+// bootServiceName is the systemd unit battery-saver.sh installs to re-apply
+// saver settings at boot. Must match SERVICE_NAME in the script.
+const bootServiceName = "fbs-restore.service"
+
 // ScriptPath locates the privileged battery-saver.sh helper. It checks
 // $FBS_SCRIPT, then alongside and one level above the running binary (bin/fbs
 // -> repo root), then the working directory.
@@ -100,6 +104,21 @@ func readProfile(ctx context.Context) string {
 		}
 	}
 	return "unknown"
+}
+
+// BootServiceState reports the install/enable state of the boot-persistence
+// unit via `systemctl is-enabled` (read-only, no root). It returns the raw
+// systemd state ("enabled", "disabled", …) or "not installed" when the unit is
+// absent or systemd can't be queried.
+func BootServiceState(ctx context.Context) string {
+	// is-enabled writes the state to stdout even on a non-zero exit (e.g.
+	// "disabled"); only an absent unit yields empty output, which we treat as
+	// not installed.
+	out, _ := exec.CommandContext(ctx, "systemctl", "is-enabled", bootServiceName).Output()
+	if state := strings.TrimSpace(string(out)); state != "" {
+		return state
+	}
+	return "not installed"
 }
 
 var ppdEndpoints = []struct{ name, path, iface string }{

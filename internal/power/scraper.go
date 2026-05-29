@@ -42,6 +42,10 @@ type Snapshot struct {
 	Profile string // power-profiles-daemon profile, or "unknown"
 	SaverOn bool
 
+	// BootService is the systemd boot-unit state ("enabled", "disabled",
+	// "not installed") — whether saver settings will be re-applied after a reboot.
+	BootService string
+
 	BrightnessPct     int
 	BrightnessPresent bool
 	Wifi              RadioState
@@ -103,6 +107,7 @@ func (s *Scraper) Scrape(ctx context.Context) {
 	// We don't infer from profile or frequency cap because amd_pstate reports a
 	// dynamic cpuinfo_max_freq, making cap detection unreliable.
 	snap.SaverOn = SaverActive()
+	snap.BootService = BootServiceState(ctx)
 	snap.BrightnessPct, snap.BrightnessPresent = readBacklight()
 	snap.Wifi, snap.Bluetooth = readRadios()
 

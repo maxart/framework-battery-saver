@@ -21,7 +21,8 @@ cmd/fbs/main.go          Entry point; just calls ui.Run().
 internal/power/          Metric reading + script control (no UI, no root).
   scraper.go               Reads sysfs/procfs into Snapshot; ring-buffer history.
   control.go               Locates battery-saver.sh, detects saver state, reads
-                           the power profile over D-Bus (busctl).
+                           the power profile over D-Bus (busctl) and the boot
+                           unit's enable state (systemctl is-enabled).
   devices.go               Reads backlight % and rfkill (Wi-Fi/Bluetooth) state.
   ring.go                  Fixed-size ring buffer for sparkline history.
 internal/ui/             Bubble Tea program and rendering.
@@ -29,8 +30,8 @@ internal/ui/             Bubble Tea program and rendering.
                            mode, the sudo toggles via tea.ExecProcess.
   dashboard.go             Pure view over a Snapshot: header, metric cards,
                            toggle, footer; responsive width math.
-  extras.go                Secondary panel (key `e`): Wi-Fi/Bluetooth toggles
-                           and brightness control.
+  extras.go                Secondary panel (key `e`): Wi-Fi/Bluetooth toggles,
+                           brightness control, and the boot-persistence status.
   metric_card.go           Bordered title/value/sub panel.
   toggle.go                The large on/off button (with hit-test height).
   styles.go                Palette, sparkline, and meter helpers.
@@ -80,6 +81,10 @@ on" while the cap is gone. Two mechanisms close that gap:
   reports saver-on-but-cap-not-applied by comparing the active cap against the
   stable ceiling (`amd_pstate_max_freq`, *not* the dynamic `cpuinfo_max_freq`);
   on the first scrape `app.go` re-applies once via `sudo battery-saver.sh on`.
+
+The Extras panel (key `e`) shows the boot unit's `systemctl is-enabled` state
+(`power.BootServiceState`, read-only) so the user can confirm persistence is set
+up; it is informational only — the unit is installed automatically by `on`.
 
 The power profile and `powersave` governor are *not* re-applied for persistence:
 power-profiles-daemon already saves the profile across reboots, and `powersave`
