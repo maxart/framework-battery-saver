@@ -29,7 +29,7 @@ type Snapshot struct {
 
 	FreqMHz    float64 // average current frequency across online cores
 	CapFreqMHz float64 // scaling_max_freq (the active cap)
-	MaxFreqMHz float64 // cpuinfo_max_freq (hardware ceiling)
+	MaxFreqMHz float64 // stable hardware ceiling (amd_pstate_max_freq)
 	Governor   string
 
 	BatteryPct    int
@@ -66,6 +66,19 @@ func NewScraper() *Scraper {
 		powerHist: newRing(historyLength),
 		freqHist:  newRing(historyLength),
 	}
+}
+
+// CapDrifted reports that saver mode is marked active but the CPU frequency cap
+// is not actually in effect — the state after a reboot, since the cap (unlike
+// the marker file) does not survive one. It compares the active cap against the
+// stable hardware ceiling: an uncapped CPU sits at the ceiling, a capped one
+// well below it. The boot service normally prevents this; it is the TUI's
+// belt-and-suspenders signal to re-apply on launch.
+func (s Snapshot) CapDrifted() bool {
+	if !s.SaverOn || s.MaxFreqMHz <= 0 || s.CapFreqMHz <= 0 {
+		return false
+	}
+	return s.CapFreqMHz > 0.9*s.MaxFreqMHz
 }
 
 // Snapshot returns the most recent reading. Safe to call concurrently.
@@ -119,7 +132,12 @@ func (s *Scraper) readFrequencies() (avgMHz, capMHz, maxMHz float64) {
 	if khz, ok := readUint(filepath.Join(cpuBasePath, "cpu0/cpufreq/scaling_max_freq")); ok {
 		capMHz = float64(khz) / 1000
 	}
-	if khz, ok := readUint(filepath.Join(cpuBasePath, "cpu0/cpufreq/cpuinfo_max_freq")); ok {
+	// cpuinfo_max_freq is dynamic on amd_pstate — it tracks the current cap, so
+	// it reads ~2 GHz while capped. amd_pstate_max_freq is the stable ceiling;
+	// fall back to cpuinfo_max_freq only where the pstate file is absent.
+	if khz, ok := readUint(filepath.Join(cpuBasePath, "cpu0/cpufreq/amd_pstate_max_freq")); ok {
+		maxMHz = float64(khz) / 1000
+	} else if khz, ok := readUint(filepath.Join(cpuBasePath, "cpu0/cpufreq/cpuinfo_max_freq")); ok {
 		maxMHz = float64(khz) / 1000
 	}
 	return

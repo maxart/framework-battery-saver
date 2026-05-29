@@ -27,6 +27,29 @@ func TestScrapeReadsLiveValues(t *testing.T) {
 		snap.OnAC, snap.Profile, snap.SaverOn)
 }
 
+func TestCapDrifted(t *testing.T) {
+	const ceiling = 5158 // amd_pstate_max_freq in MHz
+	tests := []struct {
+		name string
+		snap Snapshot
+		want bool
+	}{
+		{"saver off", Snapshot{SaverOn: false, CapFreqMHz: ceiling, MaxFreqMHz: ceiling}, false},
+		{"on and capped", Snapshot{SaverOn: true, CapFreqMHz: 2000, MaxFreqMHz: ceiling}, false},
+		{"on but uncapped", Snapshot{SaverOn: true, CapFreqMHz: ceiling, MaxFreqMHz: ceiling}, true},
+		{"on, cap just under ceiling", Snapshot{SaverOn: true, CapFreqMHz: 4700, MaxFreqMHz: ceiling}, true},
+		{"missing ceiling", Snapshot{SaverOn: true, CapFreqMHz: ceiling, MaxFreqMHz: 0}, false},
+		{"missing cap", Snapshot{SaverOn: true, CapFreqMHz: 0, MaxFreqMHz: ceiling}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.snap.CapDrifted(); got != tt.want {
+				t.Errorf("CapDrifted() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRingChronologicalOrder(t *testing.T) {
 	r := newRing(3)
 	r.push(1)

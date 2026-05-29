@@ -8,6 +8,7 @@ Laptop 13 (AMD Ryzen AI 9 HX 370) on Arch / Omarchy. It has two parts:
 - **`battery-saver.sh`** — a privileged CLI that toggles power-saving on/off:
   it caps the CPU frequency, sets the `powersave` governor, switches the
   power-profiles-daemon profile, and reversibly disables ACPI wakeup sources.
+  It also installs a systemd boot unit so those settings survive a reboot.
 - **`fbs`** — an unprivileged Bubble Tea TUI that shows live power draw, CPU
   frequency, battery (with time estimate), and the active power profile, plus a
   large toggle. It reads everything from sysfs/procfs and shells out to the
@@ -58,6 +59,31 @@ The file records exactly which `/proc/acpi/wakeup` devices `on` disabled, so
 tracked). When run via `sudo` the script resolves the invoking user
 (`SUDO_USER`) and `chown`s the state dir back so the unprivileged TUI can read
 and remove it.
+
+### Boot persistence
+
+The freq cap (`scaling_max_freq`) and the ACPI wakeup disables do **not** survive
+a reboot — the kernel resets them to firmware defaults — but the marker file in
+`~/.local/state` does. Without re-applying, the TUI would (correctly) read "saver
+on" while the cap is gone. Two mechanisms close that gap:
+
+- **systemd boot unit** (`/etc/systemd/system/fbs-restore.service`): a root
+  oneshot that runs `battery-saver.sh restore <user>` at boot, ordered
+  `After=power-profiles-daemon.service` and guarded by `ConditionPathExists` on
+  the marker — so it is a no-op while saver is off, and `off` needn't touch it.
+  `cmd_on` installs+enables it idempotently (auto, since `on` already runs under
+  sudo); `uninstall-service` removes it. `restore` re-runs the shared `apply_on`
+  only when the marker is present, taking the target user as an argument because
+  it runs as root with no `SUDO_USER`. All elevation in this path goes through
+  `run_priv` (sudo only when not already root) so the boot run never prompts.
+- **TUI launch drift-check** (belt-and-suspenders): `Snapshot.CapDrifted()`
+  reports saver-on-but-cap-not-applied by comparing the active cap against the
+  stable ceiling (`amd_pstate_max_freq`, *not* the dynamic `cpuinfo_max_freq`);
+  on the first scrape `app.go` re-applies once via `sudo battery-saver.sh on`.
+
+The power profile and `powersave` governor are *not* re-applied for persistence:
+power-profiles-daemon already saves the profile across reboots, and `powersave`
+is the amd_pstate active-mode default the governor returns to on its own.
 
 ### Radios and brightness
 

@@ -41,6 +41,10 @@ type App struct {
 	height  int
 	busy    bool
 	err     error
+
+	// reconciled guards the one-shot launch drift-check (see Update) so we
+	// re-apply at most once per session and never loop on a cancelled sudo.
+	reconciled bool
 }
 
 func NewApp() *App {
@@ -72,6 +76,13 @@ func (m *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case snapshotMsg:
 		m.snap = msg.snap
+		// Belt-and-suspenders for the boot service: if the marker says saver is
+		// on but the cap isn't actually applied (e.g. the service didn't run),
+		// re-apply once. The boot unit normally makes this a no-op.
+		if !m.reconciled && !m.busy && m.snap.CapDrifted() {
+			m.reconciled = true
+			return m, m.startReapply()
+		}
 
 	case toggleDoneMsg:
 		m.busy = false
@@ -178,6 +189,28 @@ func (m *App) startToggle() tea.Cmd {
 	m.err = nil
 
 	cmd := exec.Command("sudo", script, arg)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return toggleDoneMsg{err: err}
+	})
+}
+
+// startReapply re-runs `on` to restore saver settings that didn't survive a
+// reboot (the freq cap, the wakeup disables). Unlike startToggle it always runs
+// `on` rather than flipping on the current marker state. It also re-ensures the
+// boot service, so an outdated install heals itself on next launch.
+func (m *App) startReapply() tea.Cmd {
+	if m.busy {
+		return nil
+	}
+	script, err := power.ScriptPath()
+	if err != nil {
+		m.err = fmt.Errorf("cannot find battery-saver.sh: %w", err)
+		return nil
+	}
+	m.busy = true
+	m.err = nil
+
+	cmd := exec.Command("sudo", script, "on")
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return toggleDoneMsg{err: err}
 	})
