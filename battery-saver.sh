@@ -33,6 +33,31 @@ readonly WAKEUP_STATE="$STATE_DIR/disabled-wakeups"
 log()  { printf '  %s\n' "$*"; }
 warn() { printf '  ! %s\n' "$*" >&2; }
 
+# Read the active power-profiles-daemon profile over the system D-Bus. We use
+# busctl (ships with systemd) rather than `powerprofilesctl get` because the
+# latter is a Python script that breaks when the shell carries a stray
+# PYTHONHOME/PYTHONPATH (e.g. leaked from an AppImage), printing "?" instead.
+read_profile() {
+    local out
+    out=$(busctl --system get-property \
+        org.freedesktop.UPower.PowerProfiles \
+        /org/freedesktop/UPower/PowerProfiles \
+        org.freedesktop.UPower.PowerProfiles ActiveProfile 2>/dev/null) ||
+    out=$(busctl --system get-property \
+        net.hadess.PowerProfiles \
+        /net/hadess/PowerProfiles \
+        net.hadess.PowerProfiles ActiveProfile 2>/dev/null) || true
+    # busctl prints: s "balanced"
+    out=${out#s }
+    out=${out//\"/}
+    out=$(printf '%s' "$out" | tr -d '[:space:]')
+    if [[ -n "$out" ]]; then
+        printf '%s' "$out"
+    else
+        powerprofilesctl get 2>/dev/null || printf '?'
+    fi
+}
+
 require_tools() {
     local missing=()
     for t in cpupower powerprofilesctl; do
@@ -134,7 +159,7 @@ cmd_status() {
     gov=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo "?")
     maxf=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null || echo 0)
     curf=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq 2>/dev/null || echo 0)
-    prof=$(powerprofilesctl get 2>/dev/null || echo "?")
+    prof=$(read_profile)
 
     log "CPU governor    : $gov"
     log "Max freq (cap)  : $((maxf / 1000)) MHz"
